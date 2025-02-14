@@ -8,7 +8,6 @@ import speech
 import weakref
 from logHandler import log
 from synthDriverHandler import SynthDriver,VoiceInfo,synthIndexReached,synthDoneSpeaking
-from nvwave import outputDeviceNameToID
 
 
 class SynthDriver(SynthDriver):
@@ -62,12 +61,7 @@ class SynthDriver(SynthDriver):
 		_aisound.Initialize(weakref.ref(self))
 
 		# Setup output device
-		# device=config.conf["speech"]["outputDevice"]
-		# if isinstance(device,str):
-		# 	device = outputDeviceNameToID(device,True)
-		# _aisound.Configure("device","%d"%device)
-		device = outputDeviceNameToID(config.conf["speech"]["outputDevice"], True)
-		_aisound.Configure("device", device)
+		_aisound.Configure("device", config.conf["speech"]["outputDevice"])
 
 
 		# Apply default parameters
