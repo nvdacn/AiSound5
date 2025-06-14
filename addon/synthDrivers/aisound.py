@@ -60,9 +60,14 @@ class SynthDriver(SynthDriver):
 	def __init__(self):
 		_aisound.Initialize(weakref.ref(self))
 
-		# Setup output device
-		_aisound.Configure("device", config.conf["speech"]["outputDevice"])
-
+		# Setup output device with backward compatibility
+		try:
+			# Try the new path first (NVDA 2025.1+)
+			device = config.conf["audio"]["outputDevice"]
+		except KeyError:
+			# Fallback to the old path for older NVDA versions
+			device = config.conf["speech"]["outputDevice"]
+		_aisound.Configure("device", device)
 
 		# Apply default parameters
 		self.voice=self._voice
