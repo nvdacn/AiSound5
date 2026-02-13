@@ -4,11 +4,18 @@
 import os
 import weakref
 import audioDucking
-import NVDAHelper
 from ctypes import *
 from ctypes.wintypes import HANDLE, WORD, DWORD, UINT, LPUINT
 from logHandler import log
 from synthDriverHandler import synthIndexReached,synthDoneSpeaking
+
+# synthDriverHost don't support NVDAHelper.
+try:
+	import NVDAHelper
+except ModuleNotFoundError:
+	supportedNVDAHelper = False
+else:
+	supportedNVDAHelper = True
 
 wrapperDLL=None
 lastIndex=None
@@ -130,7 +137,8 @@ def Initialize(synth: weakref.ReferenceType):
 	synthRef = synth
 	if wrapperDLL==None:
 		dllPath=os.path.abspath(os.path.join(os.path.dirname(__file__), r"aisound.dll"))
-		ensureWaveOutHooks(dllPath)
+		if 	supportedNVDAHelper:
+			ensureWaveOutHooks(dllPath)
 		wrapperDLL=cdll.LoadLibrary(dllPath)
 		wrapperDLL.aisound_callback.restype=c_bool
 		wrapperDLL.aisound_callback.argtypes=[aisound_callback_t]
