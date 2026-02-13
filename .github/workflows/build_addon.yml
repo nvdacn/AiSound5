@@ -185,8 +185,15 @@ jobs:
                 fi
               done < <(echo "$HEADERS_JSON" | jq -r 'to_entries[] | "\(.key): \(.value)"')
             fi
-              curl -X PUT \
+            RESPONSE=$(curl -X PUT -w "%{http_code}" -o "$file.response.json" \
               -T "$file" \
               "${CURL_HEADERS[@]}" \
-              "$UPLOAD_URL"
+              "$UPLOAD_URL")
+            if [ "$RESPONSE" -ne 200 ]; then
+              echo "❌ Failed to upload $file. Response code: $RESPONSE"
+              cat "$file.response.json"
+              exit 1
+            else
+              echo "✅ Uploaded $file successfully"
+            fi
           done
