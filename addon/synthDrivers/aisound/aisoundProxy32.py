@@ -7,6 +7,7 @@ from _bridge.clients.synthDriverHost32.synthDriver import SynthDriverProxy32
 
 class SynthDriver(SynthDriverProxy32):
 	name = "aisound"
-	description = "AiSound 5 (32 bit)"
+	# Translators: Description for a speech synthesizer.
+	description = _("AiSound 5 (32 bit)")
 	synthDriver32Path = os.path.abspath(os.path.dirname(__file__))
 	synthDriver32Name = "aisound"
