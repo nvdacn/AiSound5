@@ -137,7 +137,7 @@ def Initialize(synth: weakref.ReferenceType):
 	synthRef = synth
 	if wrapperDLL==None:
 		dllPath=os.path.abspath(os.path.join(os.path.dirname(__file__), r"aisound.dll"))
-		if 	supportedNVDAHelper:
+		if supportedNVDAHelper:
 			ensureWaveOutHooks(dllPath)
 		wrapperDLL=cdll.LoadLibrary(dllPath)
 		wrapperDLL.aisound_callback.restype=c_bool
