@@ -139,7 +139,7 @@ jobs:
               "body": "${{ env.TAG_NAME }}",
               "prerelease": '${{ contains(github.ref, '-') }}'
             }' \
-            "https://api.gitcode.com/api/v5/repos/${{ env.GITCODE_REPOSITORY }}/releases?access_token=${{ secrets.GITCODE_TOKEN }}")
+            "https://api.gitcode.com/api/v5/repos/${{ env.GITCODE_REPOSITORY }}/releases")
           if [ "$RESPONSE" = "200" ]; then
             echo "✅ Release created successfully on GitCode"
           else
@@ -163,7 +163,7 @@ jobs:
               "body": "${{ env.TAG_NAME }}",
               "prerelease": '${{ contains(github.ref, '-') }}'
             }' \
-            "https://api.gitcode.com/api/v5/repos/${{ env.GITCODE_REPOSITORY }}/releases/${{ env.TAG_NAME }}?access_token=${{ secrets.GITCODE_TOKEN }}")
+            "https://api.gitcode.com/api/v5/repos/${{ env.GITCODE_REPOSITORY }}/releases/${{ env.TAG_NAME }}")
           if [ "$RESPONSE" = "200" ]; then
             echo "✅ Release updated successfully on GitCode"
           else
