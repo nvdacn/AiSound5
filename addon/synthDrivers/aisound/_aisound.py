@@ -2,6 +2,7 @@
 #A part of NVDA AiSound 5 Synthesizer Add-On
 
 import os
+import threading
 import weakref
 import audioDucking
 from ctypes import *
@@ -21,6 +22,12 @@ wrapperDLL=None
 lastIndex=None
 isPlaying=False
 synthRef=None
+_currentGeneration=0
+_nextCbToken=1
+_tokenToGeneration={}
+_tokenToIndex={}
+_generationPending={}
+_stateLock=threading.Lock()
 
 aisound_callback_t=CFUNCTYPE(None,c_int,c_void_p)
 SPEECH_BEGIN=0
@@ -91,6 +98,14 @@ _duckersByHandle={}
 
 @WINFUNCTYPE(windll.winmm.waveOutOpen.restype,*windll.winmm.waveOutOpen.argtypes,use_errno=False,use_last_error=False)
 def waveOutOpen(pWaveOutHandle,deviceID,wfx,callback,callbackInstance,flags):
+	# Normalize callback pointers to the current winmm argtypes. This avoids
+	# ctypes rejecting equivalent pointer types when the module has been reloaded.
+	expected_handle_type = windll.winmm.waveOutOpen.argtypes[0]
+	expected_wfx_type = windll.winmm.waveOutOpen.argtypes[2]
+	if pWaveOutHandle:
+		pWaveOutHandle = cast(pWaveOutHandle, expected_handle_type)
+	if wfx:
+		wfx = cast(wfx, expected_wfx_type)
 	try:
 		res=windll.winmm.waveOutOpen(pWaveOutHandle,deviceID,wfx,callback,callbackInstance,flags) or 0
 	except WindowsError as e:
@@ -122,15 +137,36 @@ def ensureWaveOutHooks(dllPath):
 @aisound_callback_t
 def callback(type,cbData):
 	global lastIndex,isPlaying,synthRef
+	token = int(cbData) if cbData else None
 	if type==SPEECH_BEGIN:
-		if cbData==None:
+		if token is None:
 			lastIndex=0
-		else:
-			lastIndex=cbData
+			return
+		with _stateLock:
+			index = _tokenToIndex.get(token)
+		if index is not None:
+			lastIndex=index
 			synthIndexReached.notify(synth=synthRef(),index=lastIndex)
 	elif type==SPEECH_END:
-		isPlaying=False
-		synthDoneSpeaking.notify(synth=synthRef())
+		shouldNotify=False
+		with _stateLock:
+			if token is None:
+				return
+			gen = _tokenToGeneration.pop(token, None)
+			_tokenToIndex.pop(token, None)
+			if gen is None:
+				# stale callback from canceled/cleared state
+				return
+			remaining = _generationPending.get(gen, 0)
+			if remaining > 1:
+				_generationPending[gen] = remaining - 1
+			elif remaining == 1:
+				_generationPending.pop(gen, None)
+			currentPending = _generationPending.get(_currentGeneration, 0)
+			isPlaying = currentPending > 0
+			shouldNotify = (gen == _currentGeneration and currentPending == 0)
+		if shouldNotify:
+			synthDoneSpeaking.notify(synth=synthRef())
 
 def Initialize(synth: weakref.ReferenceType):
 	global wrapperDLL,isPlaying,synthRef
@@ -161,17 +197,46 @@ def Configure(name,value):
 	return wrapperDLL.aisound_configure(name.encode("utf-8"),value.encode("utf-8"))
 
 def Speak(text,index=None):
-	global wrapperDLL,isPlaying
-	if index==None:
-		cbData=0
-	else:
-		cbData=index
-	isPlaying=True
-	return wrapperDLL.aisound_speak(text.encode("utf-8"),c_void_p(cbData))
+	global wrapperDLL,isPlaying,_nextCbToken
+	with _stateLock:
+		token = _nextCbToken
+		_nextCbToken += 1
+		# c_void_p(0) becomes None on callback; keep token non-zero.
+		if _nextCbToken > 0x7FFFFFFF:
+			_nextCbToken = 1
+		gen = _currentGeneration
+		_tokenToGeneration[token] = gen
+		if index is not None:
+			_tokenToIndex[token] = index
+		_generationPending[gen] = _generationPending.get(gen, 0) + 1
+		isPlaying=True
+	ok = wrapperDLL.aisound_speak(text.encode("utf-8"),c_void_p(token))
+	if not ok:
+		shouldNotify=False
+		with _stateLock:
+			failGen = _tokenToGeneration.pop(token, None)
+			_tokenToIndex.pop(token, None)
+			if failGen is not None:
+				remaining = _generationPending.get(failGen, 0)
+				if remaining > 1:
+					_generationPending[failGen] = remaining - 1
+				elif remaining == 1:
+					_generationPending.pop(failGen, None)
+			currentPending = _generationPending.get(_currentGeneration, 0)
+			isPlaying = currentPending > 0
+			shouldNotify = (failGen == _currentGeneration and currentPending == 0)
+		if shouldNotify:
+			synthDoneSpeaking.notify(synth=synthRef())
+	return ok
 
 def Cancel():
-	global wrapperDLL,isPlaying,synthRef
-	isPlaying=False
+	global wrapperDLL,isPlaying,synthRef,_currentGeneration
+	with _stateLock:
+		_currentGeneration += 1
+		_tokenToGeneration.clear()
+		_tokenToIndex.clear()
+		_generationPending.clear()
+		isPlaying=False
 	synthDoneSpeaking.notify(synth=synthRef())
 	return wrapperDLL.aisound_cancel()
 
