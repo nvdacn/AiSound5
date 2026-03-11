@@ -134,6 +134,28 @@ def ensureWaveOutHooks(dllPath):
 		_waveOutHooks.append(FunctionHooker(dllPath,"WINMM.dll","waveOutClose",waveOutClose))
 
 
+def _handle_utterance_end(token):
+	"""Handles cleanup for an utterance. Must be called with _stateLock held."""
+	global isPlaying
+	gen = _tokenToGeneration.pop(token, None)
+	_tokenToIndex.pop(token, None)
+
+	if gen is not None:
+		# Utterance was found, decrement pending count for its generation.
+		remaining = _generationPending.get(gen, 0)
+		if remaining > 1:
+			_generationPending[gen] = remaining - 1
+		elif remaining == 1:
+			_generationPending.pop(gen, None)
+
+	# Always update isPlaying to reflect the current state for robustness.
+	currentPending = _generationPending.get(_currentGeneration, 0)
+	isPlaying = currentPending > 0
+
+	# Notify only if the utterance was from the current generation and it was the last one.
+	return gen is not None and gen == _currentGeneration and currentPending == 0
+
+
 @aisound_callback_t
 def callback(type,cbData):
 	global lastIndex,isPlaying,synthRef
@@ -152,19 +174,7 @@ def callback(type,cbData):
 		with _stateLock:
 			if token is None:
 				return
-			gen = _tokenToGeneration.pop(token, None)
-			_tokenToIndex.pop(token, None)
-			if gen is None:
-				# stale callback from canceled/cleared state
-				return
-			remaining = _generationPending.get(gen, 0)
-			if remaining > 1:
-				_generationPending[gen] = remaining - 1
-			elif remaining == 1:
-				_generationPending.pop(gen, None)
-			currentPending = _generationPending.get(_currentGeneration, 0)
-			isPlaying = currentPending > 0
-			shouldNotify = (gen == _currentGeneration and currentPending == 0)
+			shouldNotify = _handle_utterance_end(token)
 		if shouldNotify:
 			synthDoneSpeaking.notify(synth=synthRef())
 
@@ -214,17 +224,7 @@ def Speak(text,index=None):
 	if not ok:
 		shouldNotify=False
 		with _stateLock:
-			failGen = _tokenToGeneration.pop(token, None)
-			_tokenToIndex.pop(token, None)
-			if failGen is not None:
-				remaining = _generationPending.get(failGen, 0)
-				if remaining > 1:
-					_generationPending[failGen] = remaining - 1
-				elif remaining == 1:
-					_generationPending.pop(failGen, None)
-			currentPending = _generationPending.get(_currentGeneration, 0)
-			isPlaying = currentPending > 0
-			shouldNotify = (failGen == _currentGeneration and currentPending == 0)
+			shouldNotify = _handle_utterance_end(token)
 		if shouldNotify:
 			synthDoneSpeaking.notify(synth=synthRef())
 	return ok
