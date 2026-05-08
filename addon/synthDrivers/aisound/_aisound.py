@@ -1,5 +1,5 @@
-#_aisound.py
-#A part of NVDA AiSound 5 Synthesizer Add-On
+# _aisound.py
+# A part of NVDA AiSound 5 Synthesizer Add-On
 
 import os
 import threading
@@ -8,7 +8,7 @@ import audioDucking
 from ctypes import *
 from ctypes.wintypes import HANDLE, WORD, DWORD, UINT, LPUINT
 from logHandler import log
-from synthDriverHandler import synthIndexReached,synthDoneSpeaking
+from synthDriverHandler import synthIndexReached, synthDoneSpeaking
 
 # synthDriverHost don't support NVDAHelper.
 try:
@@ -18,20 +18,20 @@ except ModuleNotFoundError:
 else:
 	supportedNVDAHelper = True
 
-wrapperDLL=None
-lastIndex=None
-isPlaying=False
-synthRef=None
-_currentGeneration=0
-_nextCbToken=1
-_tokenToGeneration={}
-_tokenToIndex={}
-_generationPending={}
-_stateLock=threading.Lock()
+wrapperDLL = None
+lastIndex = None
+isPlaying = False
+synthRef = None
+_currentGeneration = 0
+_nextCbToken = 1
+_tokenToGeneration = {}
+_tokenToIndex = {}
+_generationPending = {}
+_stateLock = threading.Lock()
 
-aisound_callback_t=CFUNCTYPE(None,c_int,c_void_p)
-SPEECH_BEGIN=0
-SPEECH_END=1
+aisound_callback_t = CFUNCTYPE(None, c_int, c_void_p)
+SPEECH_BEGIN = 0
+SPEECH_END = 1
 
 
 HWAVEOUT = HANDLE
@@ -59,27 +59,26 @@ windll.winmm.waveOutOpen.argtypes = (
 	LPWAVEFORMATEX,
 	DWORD,
 	DWORD,
-	DWORD
+	DWORD,
 )
 windll.winmm.waveOutGetID.argtypes = (HWAVEOUT, LPUINT)
 
 
 class FunctionHooker(object):
-
 	def __init__(
 		self,
 		targetDll: str,
 		importDll: str,
 		funcName: str,
-		newFunction # result of ctypes.WINFUNCTYPE
+		newFunction,  # result of ctypes.WINFUNCTYPE
 	):
 		# dllImportTableHooks_hookSingle expects byte strings.
 		try:
-			self._hook=NVDAHelper.localLib.dllImportTableHooks_hookSingle(
+			self._hook = NVDAHelper.localLib.dllImportTableHooks_hookSingle(
 				targetDll.encode("mbcs"),
 				importDll.encode("mbcs"),
 				funcName.encode("mbcs"),
-				newFunction
+				newFunction,
 			)
 		except UnicodeEncodeError:
 			log.error("Error encoding FunctionHooker input parameters", exc_info=True)
@@ -94,10 +93,17 @@ class FunctionHooker(object):
 		if self._hook:
 			NVDAHelper.localLib.dllImportTableHooks_unhookSingle(self._hook)
 
-_duckersByHandle={}
 
-@WINFUNCTYPE(windll.winmm.waveOutOpen.restype,*windll.winmm.waveOutOpen.argtypes,use_errno=False,use_last_error=False)
-def waveOutOpen(pWaveOutHandle,deviceID,wfx,callback,callbackInstance,flags):
+_duckersByHandle = {}
+
+
+@WINFUNCTYPE(
+	windll.winmm.waveOutOpen.restype,
+	*windll.winmm.waveOutOpen.argtypes,
+	use_errno=False,
+	use_last_error=False,
+)
+def waveOutOpen(pWaveOutHandle, deviceID, wfx, callback, callbackInstance, flags):
 	# Normalize callback pointers to the current winmm argtypes. This avoids
 	# ctypes rejecting equivalent pointer types when the module has been reloaded.
 	expected_handle_type = windll.winmm.waveOutOpen.argtypes[0]
@@ -107,31 +113,35 @@ def waveOutOpen(pWaveOutHandle,deviceID,wfx,callback,callbackInstance,flags):
 	if wfx:
 		wfx = cast(wfx, expected_wfx_type)
 	try:
-		res=windll.winmm.waveOutOpen(pWaveOutHandle,deviceID,wfx,callback,callbackInstance,flags) or 0
+		res = windll.winmm.waveOutOpen(pWaveOutHandle, deviceID, wfx, callback, callbackInstance, flags) or 0
 	except WindowsError as e:
-		res=e.winerror
-	if res==0 and pWaveOutHandle:
-		h=pWaveOutHandle.contents.value
-		d=audioDucking.AudioDucker()
+		res = e.winerror
+	if res == 0 and pWaveOutHandle:
+		h = pWaveOutHandle.contents.value
+		d = audioDucking.AudioDucker()
 		d.enable()
-		_duckersByHandle[h]=d
+		_duckersByHandle[h] = d
 	return res
 
-@WINFUNCTYPE(c_long,c_long)
+
+@WINFUNCTYPE(c_long, c_long)
 def waveOutClose(waveOutHandle):
 	try:
-		res=windll.winmm.waveOutClose(waveOutHandle) or 0
+		res = windll.winmm.waveOutClose(waveOutHandle) or 0
 	except WindowsError as e:
-		res=e.winerror
-	if res==0 and waveOutHandle:
-		_duckersByHandle.pop(waveOutHandle,None)
+		res = e.winerror
+	if res == 0 and waveOutHandle:
+		_duckersByHandle.pop(waveOutHandle, None)
 	return res
 
-_waveOutHooks=[]
+
+_waveOutHooks = []
+
+
 def ensureWaveOutHooks(dllPath):
 	if not _waveOutHooks and audioDucking.isAudioDuckingSupported():
-		_waveOutHooks.append(FunctionHooker(dllPath,"WINMM.dll","waveOutOpen",waveOutOpen))
-		_waveOutHooks.append(FunctionHooker(dllPath,"WINMM.dll","waveOutClose",waveOutClose))
+		_waveOutHooks.append(FunctionHooker(dllPath, "WINMM.dll", "waveOutOpen", waveOutOpen))
+		_waveOutHooks.append(FunctionHooker(dllPath, "WINMM.dll", "waveOutClose", waveOutClose))
 
 
 def _handle_utterance_end(token):
@@ -157,20 +167,20 @@ def _handle_utterance_end(token):
 
 
 @aisound_callback_t
-def callback(type,cbData):
-	global lastIndex,isPlaying,synthRef
+def callback(type, cbData):
+	global lastIndex, isPlaying, synthRef
 	token = int(cbData) if cbData else None
-	if type==SPEECH_BEGIN:
+	if type == SPEECH_BEGIN:
 		if token is None:
-			lastIndex=0
+			lastIndex = 0
 			return
 		with _stateLock:
 			index = _tokenToIndex.get(token)
 		if index is not None:
-			lastIndex=index
-			synthIndexReached.notify(synth=synthRef(),index=lastIndex)
-	elif type==SPEECH_END:
-		shouldNotify=False
+			lastIndex = index
+			synthIndexReached.notify(synth=synthRef(), index=lastIndex)
+	elif type == SPEECH_END:
+		shouldNotify = False
 		with _stateLock:
 			if token is None:
 				return
@@ -178,36 +188,40 @@ def callback(type,cbData):
 		if shouldNotify:
 			synthDoneSpeaking.notify(synth=synthRef())
 
+
 def Initialize(synth: weakref.ReferenceType):
-	global wrapperDLL,isPlaying,synthRef
+	global wrapperDLL, isPlaying, synthRef
 	synthRef = synth
-	if wrapperDLL==None:
-		dllPath=os.path.abspath(os.path.join(os.path.dirname(__file__), r"aisound.dll"))
+	if wrapperDLL is None:
+		dllPath = os.path.abspath(os.path.join(os.path.dirname(__file__), r"aisound.dll"))
 		if supportedNVDAHelper:
 			ensureWaveOutHooks(dllPath)
-		wrapperDLL=cdll.LoadLibrary(dllPath)
-		wrapperDLL.aisound_callback.restype=c_bool
-		wrapperDLL.aisound_callback.argtypes=[aisound_callback_t]
-		wrapperDLL.aisound_configure.restype=c_bool
-		wrapperDLL.aisound_configure.argtypes=[c_char_p,c_char_p]
-		wrapperDLL.aisound_speak.restype=c_bool
-		wrapperDLL.aisound_speak.argtypes=[c_char_p,c_void_p]
-		wrapperDLL.aisound_cancel.restype=c_bool
-		wrapperDLL.aisound_pause.restype=c_bool
-		wrapperDLL.aisound_resume.restype=c_bool
+		wrapperDLL = cdll.LoadLibrary(dllPath)
+		wrapperDLL.aisound_callback.restype = c_bool
+		wrapperDLL.aisound_callback.argtypes = [aisound_callback_t]
+		wrapperDLL.aisound_configure.restype = c_bool
+		wrapperDLL.aisound_configure.argtypes = [c_char_p, c_char_p]
+		wrapperDLL.aisound_speak.restype = c_bool
+		wrapperDLL.aisound_speak.argtypes = [c_char_p, c_void_p]
+		wrapperDLL.aisound_cancel.restype = c_bool
+		wrapperDLL.aisound_pause.restype = c_bool
+		wrapperDLL.aisound_resume.restype = c_bool
 	wrapperDLL.aisound_initialize()
 	wrapperDLL.aisound_callback(callback)
+
 
 def Terminate():
 	global wrapperDLL
 	wrapperDLL.aisound_terminate()
 
-def Configure(name,value):
-	global wrapperDLL
-	return wrapperDLL.aisound_configure(name.encode("utf-8"),value.encode("utf-8"))
 
-def Speak(text,index=None):
-	global wrapperDLL,isPlaying,_nextCbToken
+def Configure(name, value):
+	global wrapperDLL
+	return wrapperDLL.aisound_configure(name.encode("utf-8"), value.encode("utf-8"))
+
+
+def Speak(text, index=None):
+	global wrapperDLL, isPlaying, _nextCbToken
 	with _stateLock:
 		token = _nextCbToken
 		_nextCbToken += 1
@@ -219,30 +233,33 @@ def Speak(text,index=None):
 		if index is not None:
 			_tokenToIndex[token] = index
 		_generationPending[gen] = _generationPending.get(gen, 0) + 1
-		isPlaying=True
-	ok = wrapperDLL.aisound_speak(text.encode("utf-8"),c_void_p(token))
+		isPlaying = True
+	ok = wrapperDLL.aisound_speak(text.encode("utf-8"), c_void_p(token))
 	if not ok:
-		shouldNotify=False
+		shouldNotify = False
 		with _stateLock:
 			shouldNotify = _handle_utterance_end(token)
 		if shouldNotify:
 			synthDoneSpeaking.notify(synth=synthRef())
 	return ok
 
+
 def Cancel():
-	global wrapperDLL,isPlaying,synthRef,_currentGeneration
+	global wrapperDLL, isPlaying, synthRef, _currentGeneration
 	with _stateLock:
 		_currentGeneration += 1
 		_tokenToGeneration.clear()
 		_tokenToIndex.clear()
 		_generationPending.clear()
-		isPlaying=False
+		isPlaying = False
 	synthDoneSpeaking.notify(synth=synthRef())
 	return wrapperDLL.aisound_cancel()
+
 
 def Pause():
 	global wrapperDLL
 	return wrapperDLL.aisound_pause()
+
 
 def Resume():
 	global wrapperDLL
